@@ -1,0 +1,9 @@
+[package]
+name = "lop"
+version = "0.1.0"
+authors = ["Scott LeBaron"]
+description = "A cut(1) clone"
+edition = "2018"
+
+[dependencies]
+clap = "2.33.3"
