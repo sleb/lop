@@ -9,7 +9,7 @@ pub mod range;
 #[derive(Debug, Eq, PartialEq)]
 pub enum Mode {
     Byte(bool),
-    Field(char, bool),
+    Field(String, bool),
     Char,
 }
 
@@ -54,12 +54,12 @@ pub fn run(config: &LopConfig) -> LopResult<()> {
         };
 
         for line in input.lines() {
-            match config.mode {
+            match &config.mode {
                 Mode::Byte(true) => lop_bytes(line?, &config.range_set, &mut out)?,
                 Mode::Byte(false) => lop_bytes_on_char(&line?, &config.range_set, &mut out)?,
                 Mode::Char => lop_chars(line?, &config.range_set, &mut out)?,
                 Mode::Field(delim, suppress) => {
-                    lop_fields(line?, delim, suppress, &config.range_set, &mut out)?
+                    lop_fields(&line?, delim, *suppress, &config.range_set, &mut out)?
                 }
             };
             writeln!(&mut out, "")?;
@@ -136,14 +136,14 @@ fn lop_chars<T: Write>(line: String, ranges: &RangeList, out: &mut T) -> LopResu
 }
 
 fn lop_fields<T: Write>(
-    line: String,
-    delim: char,
+    line: &str,
+    delim: &str,
     suppress: bool,
     ranges: &RangeList,
     out: &mut T,
 ) -> LopResult<()> {
     let mut contains_delim = false;
-    let mut v: Vec<_> = line
+    let fields: Vec<_> = line
         .split(delim)
         .enumerate()
         .filter_map(|(i, f)| {
@@ -155,18 +155,19 @@ fn lop_fields<T: Write>(
                 None
             }
         })
-        .flat_map(|f| f.bytes().collect::<Vec<_>>())
         .collect();
+
+    let mut v: String = fields.join(delim);
 
     if !contains_delim {
         if suppress {
             v.clear();
         } else {
-            v = line.into_bytes();
+            v = String::from(line);
         }
     }
 
-    out.write_all(&v)?;
+    out.write_all(v.as_bytes())?;
     Ok(())
 }
 
@@ -290,5 +291,16 @@ mod test {
         lop_bytes_on_char(&s, &ranges, &mut buf).unwrap();
 
         assert_eq!(s.as_bytes()[0..6], buf);
+    }
+
+    #[test]
+    fn lop_fields_default_delimiter() {
+        let s = String::from("a\tb\tc");
+
+        let mut buf = Vec::new();
+        let ranges = RangeList::from(vec![Range::From(2)]);
+        lop_fields(&s, "\t", false, &ranges, &mut buf).unwrap();
+
+        assert_eq!(s.as_bytes()[2..], buf);
     }
 }

@@ -72,18 +72,18 @@ pub fn parse_config(matches: &ArgMatches) -> LopResult<LopConfig> {
     Ok(LopConfig::new(mode, ranges, paths))
 }
 
-fn parse_delim(delim: &Option<&str>) -> LopResult<char> {
-    delim.map_or(Ok('\t'), |s| {
-        let chars: Vec<char> = s.chars().collect();
-        if chars.len() != 1 {
+fn parse_delim(delim: &Option<&str>) -> LopResult<String> {
+    delim.map_or(Ok(String::from("\t")), |s| {
+        if s.len() != 1 {
             Err(Cli(CliErrorType::BadDelimiter))
         } else {
             // we already checked the length is 1
-            Ok(*chars.first().unwrap())
+            Ok(String::from(s))
         }
     })
 }
 
+#[derive(Debug)]
 struct ModeSwitches {
     byte: bool,
     field: bool,
@@ -146,15 +146,24 @@ mod test {
 
         let args = &["-f", any_list];
         let matches = cli.get_matches_from_safe_borrow(args).unwrap();
-        assert_eq!(Mode::Field('\t', false), parse_mode(&matches).unwrap());
+        assert_eq!(
+            Mode::Field(String::from("\t"), false),
+            parse_mode(&matches).unwrap()
+        );
 
         let args = &["-f", any_list, "-s"];
         let matches = cli.get_matches_from_safe_borrow(args).unwrap();
-        assert_eq!(Mode::Field('\t', true), parse_mode(&matches).unwrap());
+        assert_eq!(
+            Mode::Field(String::from("\t"), true),
+            parse_mode(&matches).unwrap()
+        );
 
         let args = &["-f", any_list, "-d", ":"];
         let matches = cli.get_matches_from_safe_borrow(args).unwrap();
-        assert_eq!(Mode::Field(':', false), parse_mode(&matches).unwrap());
+        assert_eq!(
+            Mode::Field(String::from(":"), false),
+            parse_mode(&matches).unwrap()
+        );
 
         let args = &["-f", any_list, "-d", "::"];
         let matches = cli.get_matches_from_safe_borrow(args).unwrap();
