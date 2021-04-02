@@ -1,5 +1,6 @@
 use crate::error::LopResult;
 use crate::range::RangeList;
+use crate::Mode::Field;
 use std::fs::File;
 use std::io::{self, BufRead, BufReader, Write};
 
@@ -11,6 +12,15 @@ pub enum Mode {
     Byte(bool),
     Field(String, bool),
     Char,
+}
+
+impl Mode {
+    fn should_split_lines(&self) -> bool {
+        match self {
+            Field(delim, _) => delim != "\n",
+            _ => true,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -43,7 +53,7 @@ pub fn run(config: &LopConfig) -> LopResult<()> {
     let paths = config.paths.as_ref().unwrap_or(&default_paths);
 
     for path in paths {
-        let input: Box<dyn BufRead> = if path == stdin_path {
+        let mut input: Box<dyn BufRead> = if path == stdin_path {
             if saw_stdin {
                 continue;
             }
@@ -53,15 +63,15 @@ pub fn run(config: &LopConfig) -> LopResult<()> {
             Box::new(BufReader::new(File::open(path)?))
         };
 
-        for line in input.lines() {
-            match &config.mode {
-                Mode::Byte(true) => lop_bytes(line?, &config.range_set, &mut out)?,
-                Mode::Byte(false) => lop_bytes_on_char(&line?, &config.range_set, &mut out)?,
-                Mode::Char => lop_chars(line?, &config.range_set, &mut out)?,
-                Mode::Field(delim, suppress) => {
-                    lop_fields(&line?, delim, *suppress, &config.range_set, &mut out)?
-                }
-            };
+        if *&config.mode.should_split_lines() {
+            for line in input.lines() {
+                lop(&line?, config, &mut out)?;
+                writeln!(&mut out, "")?;
+            }
+        } else {
+            let mut line = String::new();
+            input.read_to_string(&mut line)?;
+            lop(&line, config, &mut out)?;
             writeln!(&mut out, "")?;
         }
     }
@@ -69,7 +79,16 @@ pub fn run(config: &LopConfig) -> LopResult<()> {
     Ok(())
 }
 
-fn lop_bytes<T: Write>(line: String, ranges: &RangeList, out: &mut T) -> LopResult<()> {
+fn lop<T: Write>(line: &str, config: &LopConfig, out: &mut T) -> LopResult<()> {
+    match &config.mode {
+        Mode::Byte(true) => lop_bytes(line, &config.range_set, out),
+        Mode::Byte(false) => lop_bytes_on_char(line, &config.range_set, out),
+        Mode::Char => lop_chars(line, &config.range_set, out),
+        Mode::Field(delim, suppress) => lop_fields(line, delim, *suppress, &config.range_set, out),
+    }
+}
+
+fn lop_bytes<T: Write>(line: &str, ranges: &RangeList, out: &mut T) -> LopResult<()> {
     let v: Vec<_> = line
         .bytes()
         .enumerate()
@@ -87,7 +106,7 @@ fn lop_bytes<T: Write>(line: String, ranges: &RangeList, out: &mut T) -> LopResu
     Ok(())
 }
 
-fn lop_bytes_on_char<T: Write>(line: &String, ranges: &RangeList, out: &mut T) -> LopResult<()> {
+fn lop_bytes_on_char<T: Write>(line: &str, ranges: &RangeList, out: &mut T) -> LopResult<()> {
     let mut index = 1;
     let v: Vec<_> = line
         .chars()
@@ -112,7 +131,7 @@ fn lop_bytes_on_char<T: Write>(line: &String, ranges: &RangeList, out: &mut T) -
     Ok(())
 }
 
-fn lop_chars<T: Write>(line: String, ranges: &RangeList, out: &mut T) -> LopResult<()> {
+fn lop_chars<T: Write>(line: &str, ranges: &RangeList, out: &mut T) -> LopResult<()> {
     let v: Vec<_> = line
         .chars()
         .enumerate()
@@ -148,8 +167,7 @@ fn lop_fields<T: Write>(
         .enumerate()
         .filter_map(|(i, f)| {
             contains_delim = i > 0;
-            let index = i + 1;
-            if ranges.contains(index) {
+            if ranges.contains(i + 1) {
                 Some(f)
             } else {
                 None
@@ -181,21 +199,21 @@ mod test {
         let s = String::from("123456");
         let mut buf = Vec::new();
         let ranges = RangeList::from(vec![Range::Singleton(3)]);
-        lop_bytes(s, &ranges, &mut buf).unwrap();
+        lop_bytes(&s, &ranges, &mut buf).unwrap();
 
         assert_eq!(vec![b'3'], buf);
 
         let s = String::from("123456");
         let mut buf = Vec::new();
         let ranges = RangeList::from(vec![Range::Inclusive(3, 5)]);
-        lop_bytes(s, &ranges, &mut buf).unwrap();
+        lop_bytes(&s, &ranges, &mut buf).unwrap();
 
         assert_eq!(vec![b'3', b'4', b'5'], buf);
 
         let s = String::from("123456");
         let mut buf = Vec::new();
         let ranges = RangeList::from(vec![Range::Singleton(2), Range::From(5)]);
-        lop_bytes(s, &ranges, &mut buf).unwrap();
+        lop_bytes(&s, &ranges, &mut buf).unwrap();
 
         assert_eq!(vec![b'2', b'5', b'6'], buf);
     }
@@ -205,7 +223,7 @@ mod test {
         let s = String::from("こんにちは世界");
         let mut buf = Vec::new();
         let ranges = RangeList::from(vec![Range::To(2)]);
-        lop_bytes(s, &ranges, &mut buf).unwrap();
+        lop_bytes(&s, &ranges, &mut buf).unwrap();
 
         assert_eq!(vec![0xE3_u8, 0x81_u8], buf);
     }
@@ -215,21 +233,21 @@ mod test {
         let s = String::from("123456");
         let mut buf = Vec::new();
         let ranges = RangeList::from(vec![Range::Singleton(3)]);
-        lop_bytes(s, &ranges, &mut buf).unwrap();
+        lop_bytes(&s, &ranges, &mut buf).unwrap();
 
         assert_eq!(vec![b'3'], buf);
 
         let s = String::from("123456");
         let mut buf = Vec::new();
         let ranges = RangeList::from(vec![Range::Inclusive(3, 5)]);
-        lop_bytes(s, &ranges, &mut buf).unwrap();
+        lop_bytes(&s, &ranges, &mut buf).unwrap();
 
         assert_eq!(vec![b'3', b'4', b'5'], buf);
 
         let s = String::from("123456");
         let mut buf = Vec::new();
         let ranges = RangeList::from(vec![Range::Singleton(2), Range::From(5)]);
-        lop_chars(s, &ranges, &mut buf).unwrap();
+        lop_chars(&s, &ranges, &mut buf).unwrap();
 
         assert_eq!(vec![b'2', b'5', b'6'], buf);
     }
@@ -241,7 +259,7 @@ mod test {
             let index = i + 1;
             let mut buf = Vec::new();
             let ranges = RangeList::from(vec![Range::Singleton(index)]);
-            lop_chars(s.clone(), &ranges, &mut buf).unwrap();
+            lop_chars(&s, &ranges, &mut buf).unwrap();
 
             assert_eq!(format!("{}", c).bytes().collect::<Vec<_>>(), buf);
         }

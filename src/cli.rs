@@ -73,13 +73,10 @@ pub fn parse_config(matches: &ArgMatches) -> LopResult<LopConfig> {
 }
 
 fn parse_delim(delim: &Option<&str>) -> LopResult<String> {
-    delim.map_or(Ok(String::from("\t")), |s| {
-        if s.len() != 1 {
-            Err(Cli(CliErrorType::BadDelimiter))
-        } else {
-            // we already checked the length is 1
-            Ok(String::from(s))
-        }
+    delim.map_or(Ok(String::from("\t")), |s| match s.len() {
+        0 => Ok(String::from("\0")),
+        1 => Ok(String::from(s)),
+        _ => Err(Cli(CliErrorType::BadDelimiter)),
     })
 }
 

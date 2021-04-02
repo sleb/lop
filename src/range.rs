@@ -18,13 +18,26 @@ impl FromStr for Range {
             .split('-')
             .map(|bound| match bound {
                 "" => Ok(None),
-                s => Ok(Some(s.parse()?)),
+                s => {
+                    let n = s.parse()?;
+                    if n < 1 {
+                        Err(LopError::MalformedRangSpec)
+                    } else {
+                        Ok(Some(n))
+                    }
+                }
             })
             .collect::<LopResult<Vec<_>>>()?;
 
         match *bounds.as_slice() {
             [Some(n)] => Ok(Range::Singleton(n)),
-            [Some(s), Some(e)] => Ok(Range::Inclusive(s, e)),
+            [Some(s), Some(e)] => {
+                if s > e {
+                    Err(LopError::MalformedRangSpec)
+                } else {
+                    Ok(Range::Inclusive(s, e))
+                }
+            }
             [Some(s), None] => Ok(Range::From(s)),
             [None, Some(e)] => Ok(Range::To(e)),
             _ => Err(LopError::MalformedRangSpec),
